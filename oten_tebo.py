@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#
-# Simple Bot to reply to Telegram messages
 # This program is dedicated to the public domain under the CC0 license.
+
 """
-This Bot uses the Updater class to handle the bot.
+Simple Bot to reply to Telegram messages.
 First, a few handler functions are defined. Then, those functions are passed to
 the Dispatcher and registered at their respective places.
 Then, the bot is started and runs until we press Ctrl-C on the command line.
@@ -14,449 +13,272 @@ Press Ctrl-C on the command line or send a signal to the process to stop the
 bot.
 """
 
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from telegram.ext.dispatcher import run_async
-from telegram.error import TimedOut
-from telegram import ChatAction
-from threading import Thread
-from oten_core import Oten
-import logging
+import parser_game_engine
 import config
-import time
-import datetime
+import logging
+import en_game_controller
 
-#import queue
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO) #filename='logfile.log')
+                    level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
-oten = Oten()
-access_user_list = {64798180,228485598,}
-access_chat_list = {64798180,228485598,}
+ENGC = en_game_controller.en_game_controller()
+access_admin_list = 64798180
+access_chat_list = {64798180, 228485598, }
+game_chat = 64798180
+global_bot = None
 
 
 def decor_log(method):
-    '''Just log it'''
+    """Just log it"""
     def logging_f(*args, **kwargs):
-        #args = bot, update
+        # args:<telegram.update.Update object>, <telegram.ext.callbackcontext.CallbackContext>
         logger.info('IN: ChatID:%d UserID:%d User:"%s" Message:"%s"' %(
-                    args[1].message.chat_id,
-                    args[1].message.from_user.id,
-                    args[1].message.from_user.username,
-                    args[1].message.text))
+                    args[0].message.chat_id,
+                    args[0].message.from_user.id,
+                    args[0].message.from_user.username,
+                    args[0].message.text))
         return method(*args, **kwargs)
     return logging_f
 
 
 def access_user(method):
-    ''' Check user access'''
+    """ Check user access"""
     def logging_access_f(*args, **kwargs):
-        #args = bot, update
-        if args[1].message.from_user.id in access_user_list:
+        # args: <telegram.update.Update object>, <telegram.ext.callbackcontext.CallbackContext>
+        if args[0].message.from_user.id == access_admin_list:
             return method(*args, **kwargs)
         else:
-            args[0].sendMessage(args[1].message.chat_id, text="Deny access")
+            # args[1].bot.send_message(args[0].message.chat_id, text="Deny access")
+            args[0].message.reply_text("Deny access")
     return logging_access_f
 
 
 def access_chat(method):
-    ''' Check chat access'''
+    """ Check chat access"""
     def logging_access_f(*args, **kwargs):
-        if args[1].message.chat_id in access_chat_list:
+        if args[0].message.chat_id in access_chat_list:
             return method(*args, **kwargs)
         else:
-            args[0].sendMessage(args[1].message.chat_id, text="Deny access")
+            # args[1].bot.send_message(args[0].message.chat_id, text="Deny access")
+            args[0].message.reply_text("Deny access")
     return logging_access_f
-
-
-#Demon for permoment parsing engine
-@run_async
-def get_page_demon(bot, chat_id):
-    '''-'''
-    logger.info('Demon Start')
-    #While game in active
-    while oten.ingame is True:
-        time.sleep(2) # wait 2 sec
-        #bot.send_message(chat_id=chat_id, text='.')
-        bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-        page_res = oten.req.get_page() # Get page
-        #if get_page is success
-        if page_res is True:
-            new_lvl = oten.check_lvl()
-            if new_lvl:
-                if oten.correct_lvl == True:
-                    #If new level say it
-                    bot.send_message(chat_id=chat_id, 
-                                text='❗ #АП Уровень:{0}'.format(oten.lastlvl),
-                                parse_mode='markdown')
-                                
-                    mess, img_list = oten.new_lvl()
-                    
-                    bot.send_message(chat_id=chat_id, 
-                                text=mess,
-                                parse_mode='markdown',
-                                disable_web_page_preview=True)
-                    if img_list:
-                        for img in img_list:
-                            bot.send_message(chat_id=chat_id, 
-                                    text=img,
-                                    parse_mode='markdown')
-                
-                else:
-                    logger.info("UNcorrect lvl")
-                    result = oten.get_raw_page()
-                    bot.send_message(chat_id=chat_id, 
-                                    text = result[0], 
-                                    disable_web_page_preview=True)            
-            #Check update
-            else:
-                is_update = oten.check_update()
-                if is_update:
-                    send_stream_mess(bot, chat_id, is_update)
-
-        elif page_res is False:
-            #If need login again
-            logger.info('Need relogin')
-            oten.login_en()
-        else:
-            #if network error
-            bot.send_message(chat_id=chat_id, text='Ошибка: {}'.format(page_res))
-    logger.info('Demon Stop')
-
-
-# Define a few command handlers. These usually take the two arguments bot and
-# update. Error handlers also receive the raised TelegramError object in error.
-#@access_user
-@decor_log
-def start(bot, update):
-    '''starting func'''
-    update.message.reply_text('Hi!')
-
-
-@decor_log
-@access_chat
-def help(bot, update):
-    update.message.reply_text(config.HELP)
-    
 
 @decor_log
 @access_user
-def status(bot, update):
-    update.message.reply_text('ChatId:{} \nUserId:{}\n\n ChatList:{}\n UserList{}'.format(
+def status(update, context):
+    update.message.reply_text('ChatId:{0}\nUserId:{1}\n\nChatList:{2}\nUserList{3}\nGameChat:{4}'.format(
+                                    update.effective_chat.id,
+                                    update.message.from_user.id,
+                                    access_chat_list,
+                                    access_admin_list,
+                                    game_chat))
+
+
+@decor_log
+@access_user
+def accept_chat(update, context):
+    global game_chat
+    access_chat_list.add(update.message.chat_id)
+    game_chat = update.message.chat_id
+    update.message.reply_text('ChatId:{0}\nUserId:{1}\n\nChatList:{2}\nUserList:{3}\nGameChat:{4}'.format(
                                     update.message.chat_id,
                                     update.message.from_user.id,
                                     access_chat_list,
-                                    access_user_list))
+                                    access_admin_list,
+                                    game_chat))
 
+
+def take_arguments(str_in):
+    end_cmd = str_in.find(' ')
+    if end_cmd > 0:
+        result = str_in[end_cmd:].strip()
+        return result
+    else:
+        return ''
+
+
+@access_chat
+def help_command(update, context):
+    """Send a message when the command /help is issued."""
+    update.message.reply_text(config.HELP_new)
 
 @decor_log
 @access_user
-def gameurl(bot, update, args):
-    '''-'''
-    try:
-        str_in = args[0]
-    except IndexError:
-        str_in = None
+def enter_url(update, context):
+    """Send a message when the command /url is issued."""
+    # Высчитываю текст сообщения
+    msg_in = take_arguments(update.message.text)
 
-    if str_in:
-        done = oten.args_from_url(str_in)
-        if done is None:
-            update.message.reply_text('Не корректная ссылка')
+    # Вызов метода
+    result = ENGC.fill_url(msg_in)
+
+    # Обработчки ошибок
+    if result is not None:
+        update.message.reply_text('Url принят!')
+    else:
+        update.message.reply_text(ENGC.get_error_logs())
+
+@decor_log
+@access_user
+def enter_login(update, context):
+    """Send a message when the command /login is issued."""
+    # Высчитываю текст сообщения
+    msg_in = take_arguments(update.message.text)
+
+    # Вызов метода
+    result = ENGC.fill_user(msg_in)
+
+    # Обработчки ошибок
+    if result is not None:
+        update.message.reply_text('User принят!')
+    else:
+        update.message.reply_text(ENGC.get_error_logs())
+
+
+@decor_log
+@access_chat
+def get_level(update, context):
+    """Send a message when the command /lvl is issued."""
+    # Высчитываю текст сообщения
+    msg_in = take_arguments(update.message.text)
+
+    # Вызов метода
+    result = ENGC.get_level()
+
+    # Обработчки ошибок
+    if result is not None:
+        for i in range(len(result)):
+            if i == 0:
+                update.message.reply_text(result[i], parse_mode="Markdown", disable_web_page_preview=True)
+            else:
+                update.message.reply_text(result[i])
+    else:
+        update.message.reply_text(ENGC.get_error_logs())
+
+
+@decor_log
+@access_chat
+def get_gps(update, context):
+    # Try get GPS location
+    loactions = ENGC.get_location()
+    if loactions is not None:
+        for each in loactions:
+            xy = each.split()
+            loc = Location(xy[0], xy[1])
+            update.message.reply_location(latitude=xy[0], longitude=xy[1])
+
+@decor_log
+@access_chat
+def check_answer(update, context):
+    """Send a code when the command /a is issued."""
+    # Высчитываю текст сообщения
+    msg_in = take_arguments(update.message.text)
+
+    # Вызов метода
+    result = ENGC.send_answer(msg_in)
+
+    if result is not None:
+        update.message.reply_text(result, parse_mode="Markdown")
+    else:
+        update.message.reply_text(ENGC.get_error_logs())
+
+@decor_log
+def code(update, context):
+    """Send a code when the command . is issued."""
+    msg_in = update.message.text
+    if msg_in.startswith('.'):
+        result = ENGC.send_answer(update.message.text[1:])
+        if result is not None:
+            update.message.reply_text(result, parse_mode='markdown')
         else:
-            update.message.reply_text('Url принята')
-    else:
-        update.message.reply_text('Ссылка на игру: {}'.format( oten.generation_url() ))
+            update.message.reply_text(ENGC.get_error_logs())
 
-
-@decor_log
-@access_user
-def gamelogin(bot, update):
-    '''-'''
-    oten.login = update.message.text.split(None, 1)[1]
-    update.message.reply_text('Login принят')
-
-
-@decor_log
-@access_user
-def gamepas(bot, update):
-    '''-'''
-    oten.passw = update.message.text.split(None, 1)[1]
-    update.message.reply_text('Password принят')
-
-
-@decor_log
-@access_user
-def gamestart(bot, update):
-    '''-'''
-    done = oten.login_en()
-    if done is True:
-        update.message.reply_text('LogIN - Успешный')
-        oten.ingame = True
-        access_chat_list.add(update.message.chat_id)
-        get_page_demon(bot, update.message.chat_id)
-    if done is False:
-        update.message.reply_text('Login или Password не верный')
-    if done is None:
-        update.message.reply_text('Необходимы Login или Password')
-
-
-@decor_log
-@access_user
-def gamestop(bot, update):
-        oten.ingame = False
-        update.message.reply_text('Игра остановлена')
 
 
 @decor_log
 @access_chat
-def move_lvl(bot, update):
-    '''-'''
-
-    oten.update_storm()
-    lvl = update.message.text.split(None, 1)[1]
-    result = oten.set_url_lvl(lvl)
-    if result:
-        update.message.reply_text('Перешли на уровень %s' %lvl)
-    else:
-        update.message.reply_text('Перейти на уровень не возможно')
+def change_level(update, context):
+    """Change current level for EN"""
+    msg_in = take_arguments(update.message.text)
+    result = ENGC.change_current_level(msg_in)
+    update.message.reply_text(result)
 
 
 @decor_log
 @access_chat
-def task(bot, update):
-    '''
-    Get task from lvl
-    Return 2 message:
-        1) Text and Name_img with save structur html
-        2) Set of images
-    '''
-
-    result = oten.get_lvl_body()
-    update.message.reply_text(result[0], parse_mode='markdown',disable_web_page_preview=True)
-
-    #Try send Images
-    if len(result) > 1:
-        for item in result[1]:
-            update.message.reply_text(item, parse_mode='markdown')
+def change_line_mode(update, context):
+    """Change mode Speared or Line"""
+    msg_in = take_arguments(update.message.text)
+    result = ENGC.change_spread_mode()
+    update.message.reply_text(result)
 
 
 @decor_log
 @access_chat
-def raw(bot, update):
-    '''
-    Get task from lvl
-    Return 2 message:
-        1) Text and Name_img with save structur html
-        2) Set of images
-    '''
-    result = oten.get_raw_page()
-    update.message.reply_text(result[0],disable_web_page_preview=True)
+def get_short_info(update, context):
+    """Change mode Speared or Line"""
+    result = ENGC.get_short_information()
+    update.message.reply_text(result)
 
-    #Try send Images
-    if len(result) > 1:
-        for item in result[1]:
-            update.message.reply_text(item, parse_mode='markdown')
-
-
-@decor_log
 @access_chat
-def hint(bot, update, args):
-    '''
-    Get task from lvl
-    Return 2 message:
-        1) Text and Name_img with save structur html
-        2) Set of images
-    '''
-    #try  get arguments from message
-    try:
-        str_in = args[0]
-        #Try get hint of number or last
-        #result = oten.get_helps(number=str_in)
-        result = oten.get_helps(args[0])
-        if result:
-            send_stream_mess(bot, update.message.chat_id, result)
-        else:
-            update.message.reply_text(('Не возможно вывести подсказку',))
-
-    except IndexError:
-        result = oten.get_helps()
-        if result:
-            send_stream_mess(bot, update.message.chat_id, result)
-        else:
-            update.message.reply_text(('Не возможно вывести подсказки',))
+def echo(update, context):
+    """Echo the user message."""
+    update.message.reply_text(update.message.text)
 
 
-def send_stream_mess(bot, chat_id, stream_mess = None):
-    '''
-    Send all messages from  list of massages
 
-    Input:
-        - Bot 
-        - Update from Telegram Bot Api
-        - Stream of messages ( [ [str, [img_urls] ], [str, [img_urls]], ... ] ) 
-    '''
-
-    #chat_id = update.message.chat_id
-    if stream_mess is not None:
-        for mess in stream_mess:
-            #update.message.reply_text(mess[0], parse_mode='markdown', disable_web_page_preview=True)
-            bot.send_message(chat_id=chat_id, 
-                                text=mess[0],
-                                parse_mode='markdown',
-                                disable_web_page_preview=True)
-            try:
-                for img in mess[1]:
-                    #update.message.reply_text(mess[1], parse_mode='markdown')
-                    bot.send_message(chat_id=chat_id, 
-                                text=img,
-                                parse_mode='markdown')
-            except IndexError:
-                pass
-    else:
-        bot.send_message(chat_id=chat_id, 
-                                text='INFO: Это пустое сообщение',
-                                parse_mode='markdown')
+def send_msg_to_gamechat(msg=''):
+    global_bot.bot.send_message(chat_id=game_chat, text=msg)
 
 
-@decor_log
-@access_chat
-def sect(bot, update):
-    '''-'''
-    result = oten.get_sectors()
-    count_sect = oten.count_sectors()
-    if result:
-        sect_header = '_Осталось _*{0}*_ из {1}_\n'.format(count_sect[1],count_sect[0])
-        update.message.reply_text(sect_header + '*Сектора:*\n' + '\n'.join(result), parse_mode='markdown')
-    else:
-        update.message.reply_text('На уровне 1 сектор')
 
-
-@decor_log
-@access_chat
-def sect_lef(bot, update):
-    '''-'''
-    result = oten.get_sectors(filt=False)
-    count_sect = oten.count_sectors()
-    if result:
-        sect_header = '_Осталось _*{0}*_ из {1}_\n'.format(count_sect[1],count_sect[0])
-        update.message.reply_text(sect_header + '*Сектора:*\n' + '\n'.join(result), parse_mode='markdown')
-    else:
-        update.message.reply_text('На уровне 1 сектор')
-
-
-@decor_log
-@access_chat
-def time_left(bot, update):
-    '''-'''
-    result = oten.time_left()
-    if result:
-        update.message.reply_text(result)
-    else:
-        update.message.reply_text('Ни каких временых рамок нет')
-
-
-@decor_log
-@access_chat
-def set_monitor_bonus(bot, update):
-    '''-'''
-    result = oten.set_monitor_bonus()
-    if result:
-        update.message.reply_text(result)
-    else:
-        update.message.reply_text('Данная настройка отсутствует')
-
-
-@decor_log
-@access_chat
-def auth_mess(bot, update):
-    '''-'''
-    result = oten.get_global_mess()
-    if result:
-        update.message.reply_text(result)
-    else:
-        update.message.reply_text('Сообщений от авторов нет')
-
-
-@decor_log
-@access_chat
-def bonus(bot, update):
-    '''-'''
-    result = oten.get_bonus_list()
-    #logger.info(result)
-    send_stream_mess(bot, update.message.chat_id, result)
-
-
-def code(bot, update):
-    '''-'''
-    if update.message.chat_id in access_chat_list and update.message.text.startswith('.'):
-        logger.info('IN: ChatID:%d UserID:%d User:"%s" Message:"%s"' %(
-                    update.message.chat_id,
-                    update.message.from_user.id,
-                    update.message.from_user.username,
-                    update.message.text))
-
-        result = oten.check_answer(update.message.text)
-        update.message.reply_text(result, parse_mode='markdown')
-    
-
-def error(bot, update, error):
-    '''-'''
-    logger.warn('Update "%s" caused error "%s"' % (update, error))
 
 
 def main():
-    # Create the EventHandler and pass it your bot's token.
-    updater = Updater(config.TOKEN)
+    """Start the bot."""
+    # Create the Updater and pass it your bot's token.
+    # Make sure to set use_context=True to use the new context based callbacks
+    # Post version 12 this will no longer be necessary
+    global global_bot
+    updater = Updater(config.TOKEN, use_context=True)
 
     # Get the dispatcher to register handlers
     dp = updater.dispatcher
 
     # on different commands - answer in Telegram
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("url", enter_url))
+    dp.add_handler(CommandHandler("login", enter_login))
+    dp.add_handler(CommandHandler("task", get_level))
+    dp.add_handler(CommandHandler("gps", get_gps))
+    dp.add_handler(CommandHandler("a", check_answer))
+    dp.add_handler(CommandHandler("set_lvl", change_level))
+    dp.add_handler(CommandHandler("change_mode", change_line_mode))
+    dp.add_handler(CommandHandler("info", get_short_info))
     dp.add_handler(CommandHandler("status", status))
+    dp.add_handler(CommandHandler("accept", accept_chat))
 
-    dp.add_handler(CommandHandler("gameurl", gameurl, pass_args=True))
-    dp.add_handler(CommandHandler("gamelogin", gamelogin))
-    dp.add_handler(CommandHandler("gamepas", gamepas))
-    dp.add_handler(CommandHandler("gamestart", gamestart))
-    dp.add_handler(CommandHandler("gamestop", gamestop))
+    #dp.add_handler(CommandHandler("startgame", ))
+    #dp.add_handler(CommandHandler("stopgame", ))
+    # dp.add_handler(CommandHandler("start", start))
 
-    #dp.add_handler(CommandHandler("connect", connect_chat))
-    #dp.add_handler(CommandHandler("disconnect", disconnect_chat))
-
-    dp.add_handler(CommandHandler("task", task))
-    dp.add_handler(CommandHandler("sect", sect))
-    dp.add_handler(CommandHandler("sectleft", sect_lef))
-    
-    dp.add_handler(CommandHandler("time", time_left))
-    dp.add_handler(CommandHandler("hint", hint, pass_args=True))
-    dp.add_handler(CommandHandler("bonus", bonus))
-
-    dp.add_handler(CommandHandler("raw", raw))
-    dp.add_handler(CommandHandler("mes", auth_mess))
-
-    dp.add_handler(CommandHandler("set_mon", set_monitor_bonus))
-    dp.add_handler(CommandHandler("level", move_lvl))
-    
-    
     # on noncommand i.e message - echo the message on Telegram
     dp.add_handler(MessageHandler(Filters.text, code))
 
-    # log all errors
-    dp.add_error_handler(error)
 
     # Start the Bot
     updater.start_polling()
-    logger.info('Bot started')
+    global_bot = dp.bot
 
     # Run the bot until you press Ctrl-C or the process receives SIGINT,
     # SIGTERM or SIGABRT. This should be used most of the time, since
     # start_polling() is non-blocking and will stop the bot gracefully.
     updater.idle()
-
 
 
 if __name__ == '__main__':

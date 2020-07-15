@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-TOKEN = '154399063:AAGsR4iZylyecqY2lpG6OdBJPq7SQ3uQ2-o'
+TOKEN = '889733279:AAE_m0oTSY9W58PYNA8hIdON28kD6XB-PT9'
 HELP = """/task - Задание
 /time - Все таймеры
 /sect - Все сектора
@@ -14,4 +14,18 @@ HELP = """/task - Задание
 /raw - загрузка всего текста страницы
 .<code> - вбить <code> в движок
 ..<code> - вбитие <code> в движок с ограничением
-"""  
+"""
+
+HELP_new="""
+/help
+/url
+/login
+/task
+/gps
+/a
+/set_lvl
+/change_mode
+/startgame
+/stopgame
+/status
+/accept"""
