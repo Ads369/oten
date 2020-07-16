@@ -12,12 +12,15 @@ Basic Echobot example, repeats messages.
 Press Ctrl-C on the command line or send a signal to the process to stop the
 bot.
 """
+import time
 
 import parser_game_engine
 import config
 import logging
 import en_game_controller
 
+from telegram import Location
+from telegram.ext.dispatcher import run_async
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Enable logging
@@ -35,19 +38,22 @@ global_bot = None
 
 def decor_log(method):
     """Just log it"""
+
     def logging_f(*args, **kwargs):
         # args:<telegram.update.Update object>, <telegram.ext.callbackcontext.CallbackContext>
-        logger.info('IN: ChatID:%d UserID:%d User:"%s" Message:"%s"' %(
-                    args[0].message.chat_id,
-                    args[0].message.from_user.id,
-                    args[0].message.from_user.username,
-                    args[0].message.text))
+        logger.info('IN: ChatID:%d UserID:%d User:"%s" Message:"%s"' % (
+            args[0].message.chat_id,
+            args[0].message.from_user.id,
+            args[0].message.from_user.username,
+            args[0].message.text))
         return method(*args, **kwargs)
+
     return logging_f
 
 
 def access_user(method):
     """ Check user access"""
+
     def logging_access_f(*args, **kwargs):
         # args: <telegram.update.Update object>, <telegram.ext.callbackcontext.CallbackContext>
         if args[0].message.from_user.id == access_admin_list:
@@ -55,28 +61,32 @@ def access_user(method):
         else:
             # args[1].bot.send_message(args[0].message.chat_id, text="Deny access")
             args[0].message.reply_text("Deny access")
+
     return logging_access_f
 
 
 def access_chat(method):
     """ Check chat access"""
+
     def logging_access_f(*args, **kwargs):
         if args[0].message.chat_id in access_chat_list:
             return method(*args, **kwargs)
         else:
             # args[1].bot.send_message(args[0].message.chat_id, text="Deny access")
             args[0].message.reply_text("Deny access")
+
     return logging_access_f
+
 
 @decor_log
 @access_user
 def status(update, context):
     update.message.reply_text('ChatId:{0}\nUserId:{1}\n\nChatList:{2}\nUserList{3}\nGameChat:{4}'.format(
-                                    update.effective_chat.id,
-                                    update.message.from_user.id,
-                                    access_chat_list,
-                                    access_admin_list,
-                                    game_chat))
+        update.effective_chat.id,
+        update.message.from_user.id,
+        access_chat_list,
+        access_admin_list,
+        game_chat))
 
 
 @decor_log
@@ -86,11 +96,11 @@ def accept_chat(update, context):
     access_chat_list.add(update.message.chat_id)
     game_chat = update.message.chat_id
     update.message.reply_text('ChatId:{0}\nUserId:{1}\n\nChatList:{2}\nUserList:{3}\nGameChat:{4}'.format(
-                                    update.message.chat_id,
-                                    update.message.from_user.id,
-                                    access_chat_list,
-                                    access_admin_list,
-                                    game_chat))
+        update.message.chat_id,
+        update.message.from_user.id,
+        access_chat_list,
+        access_admin_list,
+        game_chat))
 
 
 def take_arguments(str_in):
@@ -107,6 +117,7 @@ def help_command(update, context):
     """Send a message when the command /help is issued."""
     update.message.reply_text(config.HELP_new)
 
+
 @decor_log
 @access_user
 def enter_url(update, context):
@@ -122,6 +133,7 @@ def enter_url(update, context):
         update.message.reply_text('Url принят!')
     else:
         update.message.reply_text(ENGC.get_error_logs())
+
 
 @decor_log
 @access_user
@@ -165,12 +177,14 @@ def get_level(update, context):
 @access_chat
 def get_gps(update, context):
     # Try get GPS location
+
     loactions = ENGC.get_location()
     if loactions is not None:
         for each in loactions:
             xy = each.split()
-            loc = Location(xy[0], xy[1])
-            update.message.reply_location(latitude=xy[0], longitude=xy[1])
+            update.message.reply_venue(latitude=xy[0], longitude=xy[1],
+                                       title=each, address='Т1')
+
 
 @decor_log
 @access_chat
@@ -187,18 +201,50 @@ def check_answer(update, context):
     else:
         update.message.reply_text(ENGC.get_error_logs())
 
-@decor_log
+
 def code(update, context):
     """Send a code when the command . is issued."""
-    msg_in = update.message.text
-    if msg_in.startswith('.'):
-        result = ENGC.send_answer(update.message.text[1:])
-        if result is not None:
-            update.message.reply_text(result, parse_mode='markdown')
+    # Cant use decorate then check access here
+    if update.message.chat_id in access_chat_list:
+        msg_in = update.message.text
+        if msg_in.startswith('.'):
+            result = ENGC.send_answer(update.message.text[1:])
+            if result is not None:
+                update.message.reply_text(result, parse_mode='markdown')
+            else:
+                update.message.reply_text(ENGC.get_error_logs())
+
+
+def print_long(update, input_text):
+    if len(input_text) == 0:
+        update.message.reply_text('-')
+        return
+    if len(input_text) > 4096:
+        for x in range(0, len(input_text), 4096):
+            update.message.reply_text(input_text[x:x + 4096])
+    else:
+        update.message.reply_text(input_text)
+
+@decor_log
+@access_user
+def start(update, context):
+    """Change mode Speared or Line"""
+    if ENGC.is_game:
+        update.message.reply_text('Игра уже запущена')
+    else:
+        if game_chat == update.message.chat_id:
+            ENGC.is_game = True
+            update.message.reply_text('Режим игры установлен в значение TRUE')
+            ENGC.revive_the_demon(context.bot, game_chat)
         else:
-            update.message.reply_text(ENGC.get_error_logs())
+            update.message.reply_text('В данном чате игра не разрешена')
 
-
+@decor_log
+@access_user
+def stop(update, context):
+    """Change mode Speared or Line"""
+    ENGC.is_game = False
+    update.message.reply_text('Режим игры установлен в значение FALSE')
 
 @decor_log
 @access_chat
@@ -225,18 +271,38 @@ def get_short_info(update, context):
     result = ENGC.get_short_information()
     update.message.reply_text(result)
 
+@decor_log
+@access_chat
+def get_bonus_list(update, context):
+    """Change mode Speared or Line"""
+    result = ENGC.get_bonus_list()
+    update.message.reply_text(result)
+
+@decor_log
+@access_chat
+def get_sector_list(update, context):
+    """Change mode Speared or Line"""
+    result = ENGC.get_sector_list()
+    update.message.reply_text(result)
+
+@decor_log
+@access_chat
+def get_kml_file(update, context):
+    """Change mode Speared or Line"""
+    result = ENGC.generate_kml_file()
+    update.message.reply_document(document=result)
+
+
 @access_chat
 def echo(update, context):
     """Echo the user message."""
-    update.message.reply_text(update.message.text)
-
+    # update.message.reply_text(update.message.text)
+    print(update)
+    print(context)
 
 
 def send_msg_to_gamechat(msg=''):
-    global_bot.bot.send_message(chat_id=game_chat, text=msg)
-
-
-
+    global_bot.send_message(chat_id=game_chat, text=msg)
 
 
 def main():
@@ -244,7 +310,6 @@ def main():
     # Create the Updater and pass it your bot's token.
     # Make sure to set use_context=True to use the new context based callbacks
     # Post version 12 this will no longer be necessary
-    global global_bot
     updater = Updater(config.TOKEN, use_context=True)
 
     # Get the dispatcher to register handlers
@@ -262,18 +327,23 @@ def main():
     dp.add_handler(CommandHandler("info", get_short_info))
     dp.add_handler(CommandHandler("status", status))
     dp.add_handler(CommandHandler("accept", accept_chat))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("stop", stop))
+    dp.add_handler(CommandHandler("sector", get_sector_list))
+    dp.add_handler(CommandHandler("bonus", get_bonus_list))
+    dp.add_handler(CommandHandler("kml", get_kml_file))
 
-    #dp.add_handler(CommandHandler("startgame", ))
-    #dp.add_handler(CommandHandler("stopgame", ))
+
+
+    # dp.add_handler(CommandHandler("stopgame", ))
     # dp.add_handler(CommandHandler("start", start))
 
     # on noncommand i.e message - echo the message on Telegram
     dp.add_handler(MessageHandler(Filters.text, code))
-
+    dp.add_handler(MessageHandler(Filters.venue, echo))
 
     # Start the Bot
     updater.start_polling()
-    global_bot = dp.bot
 
     # Run the bot until you press Ctrl-C or the process receives SIGINT,
     # SIGTERM or SIGABRT. This should be used most of the time, since

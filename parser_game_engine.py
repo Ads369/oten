@@ -49,6 +49,35 @@ def handling_attachments(html_block):
     return text, result
 
 
+def get_short_information_msg(data=None):
+    """ Get short and beautiful info about level"""
+    if data is not None:
+        info = get_short_info_game(data)
+
+        result = "Уровень {0} из {1}: {2}\n" \
+                 "⏳:{3}\n" \
+                 "----------------------------------------------\n" \
+                 "🔑:{4} | ✅ ‍:{5} | ☑️:{6}\n" \
+                 "🎁:{7} | ✅ ‍:{8} | ☑️:{9}\n" \
+                 "----------------------------------------------\n" \
+                 "Подсказки{10}{11}".format(info['lvl_num'],
+                                            info['lvl_sum'],
+                                            info['lvl_nam'],
+                                            info['time_out_str'],
+                                            info['sec_sum'],
+                                            info['sec_done'],
+                                            info['sec_left'],
+                                            info['bonus_sum'],
+                                            info['bonus_done'],
+                                            info['bonus_left'],
+                                            info['hint_str'],
+                                            info['messages']
+                                            )
+        return result
+    else:
+        return "Уровень не загружен"
+
+
 def get_level_task(data):
     """
     Take main level information
@@ -67,23 +96,12 @@ def get_level_task(data):
 
         result.extend(attachments)
 
+        # Get short information for header message
+        text_level = get_short_information_msg(data)
+
         # Format Message about select level
-        text_level = 'Уровень: {0}({1}/{2})\n' \
-                     'Секторов: {4}({3})\n' \
-                     'АвтоПереход через {5}\n' \
-                     'Подсказки: {6}\n' \
-                     'Бонусы: {7}\n\n' \
-                     'Задание:\n{8}'.format(data['Level']['Name'],  # Название уровня
-                                            data['Level']['Number'],  # Номер уровня
-                                            len(data['Levels']),  # Количество уровней в игре
-                                            data['Level']['RequiredSectorsCount'],
-                                            # Кол-во секторов необходимых для закрытия
-                                            len(data['Level']['Sectors']),  # Всего секторов
-                                            data['Level']['Timeout'],  # ? автопереход
-                                            len(data['Level']['Helps']),  # Количество подсказок
-                                            len(data['Level']['Bonuses']),  # Количество подсказок
-                                            text
-                                            )
+        text_level += '\n----------------------------------------------\n' \
+                      'Задание:\n{0}'.format(text)
         result.insert(0, text_level)
 
     # Event 5 - game don't start yet
@@ -174,15 +192,38 @@ def get_short_info_game(data):
     hint_done = list(hint['HelpId'] for hint in hint_list if hint['HelpText'] is not None)
     hint_left = list(hint['RemainSeconds'] for hint in hint_list if hint['HelpText'] is None)
 
-    pen_hint_list = data['Level']['Helps']
+    # Convert info about HINTs from json to string
+    hint_info_msg = ':\n'
+    for hint in hint_list:
+        if hint['RemainSeconds'] == 0:
+            hint_info_msg += '📥 Подсказка {0}\n'.format(hint['Number'])
+        else:
+            hint_info_msg += '⏳ Подсказка {0} через {1}\n'.format(hint['Number'],
+                                                                  second_to_string(hint['RemainSeconds']))
+
+    # Convert info about PENT_HINTS from json to string
+    pen_hint_list = data['Level']['PenaltyHelps']
+    for hint in pen_hint_list:
+        hint_info_msg += '💲 Подсказка {0} штраф {1}\n'.format(hint['Number'], second_to_string(hint['Penalty']))
 
     msgs_list = data['Level']['Messages']
-    msgs_list_text = list(msg['MessageText'] for msg in msgs_list)
+
+    if msgs_list:
+        msgs_list_list = list(msg['MessageText'] for msg in msgs_list)
+        msgs_list_text = '\n'.join(msgs_list_list)
+        msgs_list_text = '\nСообщение от авторов:\n' + msgs_list_text
+    else:
+        msgs_list_text = ''
+
+    # Formatting for good look results
+    if hint_info_msg == ':\n':
+        hint_info_msg = ' отсутствуют\n'
 
     short_info = {'lvl_num': data['Level']['Number'],
                   'lvl_sum': len(data['Levels']),
                   'lvl_nam': data['Level']['Name'],
                   'time_out': data['Level']['Timeout'],
+                  'time_out_str': second_to_string(data['Level']['Timeout']),
                   'sec_sum': len(data['Level']['Sectors']),
                   'sec_done': data['Level']['PassedSectorsCount'],
                   'sec_left': data['Level']['SectorsLeftToClose'],
@@ -192,13 +233,73 @@ def get_short_info_game(data):
                   'hint_sum': len(data['Level']['Helps']),
                   'hint_done': len(hint_done),
                   'hint_left': len(hint_left),
+                  'hint_str': hint_info_msg,
                   'pen_hint_sum': len(data['Level']['PenaltyHelps']),
                   'messages': msgs_list_text
                   }
     return short_info
 
 
-def check_answer(data, answer=None):
+def get_bonus_list(data):
+    bonuses = data['Level']['Bonuses']
+    closed_bonuses_names = [i['Name'] for i in bonuses if i['IsAnswered']]
+    not_closed_bonuses_names = [i['Name'] for i in bonuses if not i['IsAnswered']]
+
+    result_str = 'Бонусы:\n✅:{0}\n{1}\n———————————\n☑️:{2}\n{3}'.format(str(len(closed_bonuses_names)),
+                                                                        '\n'.join(closed_bonuses_names),
+                                                                        str(len(not_closed_bonuses_names)),
+                                                                        '\n'.join(not_closed_bonuses_names))
+
+    return result_str
+
+
+def get_sector_list(data):
+    bonuses = data['Level']['Sectors']
+    closed_bonuses_names = [i['Name'] for i in bonuses if i['IsAnswered']]
+    not_closed_bonuses_names = [i['Name'] for i in bonuses if not i['IsAnswered']]
+
+    result_str = 'Сектора:\n✅:{0}\n{1}\n———————————\n☑️:{2}\n{3}'.format(str(len(closed_bonuses_names)),
+                                                                         '\n'.join(closed_bonuses_names),
+                                                                         str(len(not_closed_bonuses_names)),
+                                                                         '\n'.join(not_closed_bonuses_names))
+
+    return result_str
+
+
+def second_to_string(seconds=None, granularity=2):
+    """ Convert string of second to normal string"""
+    if seconds > 0:
+        intervals = (
+            # ('weeks', 604800),  # 60 * 60 * 24 * 7
+            ('д', 86400),  # 60 * 60 * 24
+            ('ч', 3600),  # 60 * 60
+            ('м', 60),
+            ('с', 1),
+        )
+        result = []
+
+        for name, count in intervals:
+            value = seconds // count
+            if value:
+                seconds -= value * count
+                if value == 1:
+                    name = name.rstrip('s')
+                result.append("{}{}".format(value, name[:1]))
+        return ' '.join(result[:granularity])
+    else:
+        return '0'
+
+
+def is_old_answer(data, answer=None):
+    answer_list = data['Level']['MixedActions']
+    correct_answer_list = list(answ for answ in answer_list if answ['Answer'] == answer and answ['IsCorrect'])
+    if len(correct_answer_list) > 0:
+        return True
+    else:
+        return False
+
+
+def check_answer(data, answer=None, is_old_answer=False):
     """
     Take information about correct answer
     :param answer:
@@ -207,37 +308,67 @@ def check_answer(data, answer=None):
     """
     answer_list = data['Level']['MixedActions']
 
+    # res = next((answ for answ in answer_list if answ['Answer'] == answer), None)
+    # if res['IsCorrect']:
+    # Get last answer in history
 
-    res = next((answ for answ in answer_list if answ['Answer'] == answer), None)
-    if res['IsCorrect']:
-
-        result_msg = '✅ код _{0}_ закрыл:\n'.format(answer)
-
-        sectors_list = data['Level']['Sectors']
-        sectors_done = list(sector['Name'] for sector in sectors_list if sector['IsAnswered'] and
-                            sector['Answer']['Answer'] == answer)
-
-        if len(sectors_done) > 0:
-            result_msg += 'Сектор(а):\n'
-            result_msg += '\n'.join(sectors_done)
-
-        bonuses_list = data['Level']['Bonuses']
-        bonus_strings = ''
-        for bonus in bonuses_list:
-            if bonus['IsAnswered'] and bonus['Answer']['Answer'] == answer:
-                if bonus['Help'] is not None:
-                    bonus_help = '📬'
-                else:
-                    bonus_help = ''
-
-                bonus_strings += '{0} ({1}){2}\n'.format(bonus['Name'], bonus['AwardTime'], bonus_help)
-
-        if bonus_strings != '':
-            result_msg += 'Бонус(ы):\n' + bonus_strings
-
-        return result_msg
+    if is_old_answer:
+        return '🔄 код _{0}_ уже был\n'.format(answer)
     else:
-        return '❌ код _{0}_ неверный'.format(answer)
+
+        # Try get list correct answer
+        correct_answer_list = list(answ for answ in answer_list if answ['Answer'] == answer and answ['IsCorrect'])
+
+        if len(correct_answer_list) > 0:
+            result_msg = '✅ код _{0}_ верный\n———————————\n'.format(answer)
+
+            # Try get sectors was closing this answer
+            sectors_list = data['Level']['Sectors']
+            sectors_done = list(sector['Name'] for sector in sectors_list if sector['IsAnswered'] and
+                                sector['Answer']['Answer'] == answer)
+
+            # If answer closed sectors
+            if len(sectors_done) > 0:
+                result_msg += 'Сектор(а):\n'
+                result_msg += '\n'.join(sectors_done) + '\n'
+
+            # Try get bonuses was closing this answer
+            bonuses_list = data['Level']['Bonuses']
+            bonus_strings = ''
+            for bonus in bonuses_list:
+
+                # If answer closed bonuses
+                if bonus['IsAnswered'] and bonus['Answer']['Answer'] == answer:
+                    # Check:  has bonus helps
+                    if bonus['Help'] is not None:
+                        bonus_help = '📬'
+                    else:
+                        bonus_help = ''
+
+                    # Add bonus to result
+                    bonus_strings += '{0} ({1}){2}\n'.format(bonus['Name'], second_to_string(bonus['AwardTime']),
+                                                             bonus_help)
+
+            # If answer closed sectors
+            if bonus_strings != '':
+                result_msg += 'Бонус(ы):\n' + bonus_strings
+
+            # Add block about left codes on lvl
+            info = get_short_info_game(data)
+            result_msg += "———————————\n" \
+                          "🔑:{0} | ✅ ‍:{1} | ☑️:{2}\n" \
+                          "🎁:{3} | ✅ ‍:{4} | ☑️:{5}\n".format(info['sec_sum'],
+                                                               info['sec_done'],
+                                                               info['sec_left'],
+                                                               info['bonus_sum'],
+                                                               info['bonus_done'],
+                                                               info['bonus_left'],
+                                                               )
+
+            return result_msg
+
+        else:
+            return '❌ код _{0}_ неверный'.format(answer)
 
 
 # test block
@@ -250,9 +381,11 @@ def main():
 
 
 def local_test():
-    data = load_json_from_file("data_file2.json")
-    #get_short_info_game(data)
-    msg = check_answer(data, '123')
+    data = load_json_from_file("data_file.json")
+    # get_short_info_game(data)
+    # msg = check_answer(data, '123')
+    msg = get_short_information_msg(data)
+    msg = get_sector_list(data)
     print(msg)
 
 
