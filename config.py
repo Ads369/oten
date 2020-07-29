@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-TOKEN = '889733279:AAE_m0oTSY9W58PYNA8hIdON28kD6XB-PT9'
 HELP = """/task - Задание
 /time - Все таймеры
 /sect - Все сектора
