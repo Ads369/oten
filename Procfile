@@ -1,1 +1,1 @@
-worker: python oten_tebo.py
+worker: python oten_aiogram.py

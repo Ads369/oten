@@ -158,6 +158,8 @@ class Oten():
 
     async def update_en(self, message: aitype.Message):
         url = self.generation_url(self.current_level)
+        ene_old = self.en_engine
+        ene_new = self.en_engine
 
         if url:
             json = self.en_conn.get_json(url)
@@ -165,8 +167,6 @@ class Oten():
 
         if json:
             # log.info('load JSON')
-            ene_old = self.en_engine
-            ene_new = self.en_engine
             ene_new = self.get_en_engine(json)
             await asyncio.sleep(0.1)
 
@@ -201,13 +201,31 @@ class Oten():
                         await message.bot.send_message(message.chat.id, '📩 Изменились сектора')
                         # await self.get_sector(message=message)
                 except AttributeError as ae:
-                    log.info('update_en: (status) {}'.format(ae))
+                    log.info('update_en: (sectors) {}'.format(ae))
 
                 # Hint
                 try:
                     if (ene_new.level.helps != ene_old.level.helps) \
                             and (ene_new.level.number == ene_old.level.number):
                         await message.bot.send_message(message.chat.id, '📩 Изменились подсказки')
+
+                        try:
+                            new_hint_list = list([hint for hint in ene_new.level.helps])
+                            old_hint_list = list([hint for hint in ene_old.level.helps])
+
+                            count = len(new_hint_list)
+
+                            for i in range(count):
+                                if (new_hint_list[i].help_text != old_hint_list[i].help_text) and \
+                                        (new_hint_list[i].number == old_hint_list[i].number) and \
+                                        (new_hint_list[i].help_text is not None):
+                                    pre_str = '🔎 Подсказка {}\n'.format(new_hint_list[i].number)
+                                    await self.text_handler(pre_str=pre_str,
+                                                            str_in=new_hint_list[i].help_text,
+                                                            message=message)
+                        except BaseException as e:
+                            log.info('update_en (try load hints): {}'.format(e))
+
                         # await self.get_hints(message=message)
                 except AttributeError as ae:
                     log.info('update_en: (helps) {}'.format(ae))
@@ -224,29 +242,61 @@ class Oten():
                 try:
                     if ene_new.level.bonuses != ene_old.level.bonuses:
                         await message.bot.send_message(message.chat.id, '📩 Изменились бонусы')
+
+                        try:
+                            new_bonus_list = list([bonus for bonus in ene_new.level.bonuses])
+                            old_bonus_list = list([bonus for bonus in ene_old.level.bonuses])
+
+                            count = len(new_bonus_list)
+
+                            for i in range(count):
+                                if new_bonus_list[i].number == old_bonus_list[i].number:
+                                    # Bonus was done
+                                    if (new_bonus_list[i].help != old_bonus_list[i].help) and \
+                                            (new_bonus_list[i].help is not None):
+                                        pre_str = '✅🎁 Бонус {}:\n'.format(new_bonus_list[i].number)
+                                        await self.text_handler(pre_str=pre_str,
+                                                                str_in=new_bonus_list[i].help,
+                                                                message=message)
+
+                                    # Bonus was opening
+                                    if new_bonus_list[i].seconds_to_start == 0 and \
+                                            old_bonus_list[i].seconds_to_start > 0:
+                                        pre_str = '📥🎁 Бонус {}: {}\n'.format(new_bonus_list[i].number,
+                                                                               new_bonus_list[i].name)
+                                        if new_bonus_list[i].task is None:
+                                            await message.answer(pre_str)
+                                        else:
+                                            await self.text_handler(pre_str=pre_str,
+                                                                    str_in=new_bonus_list[i].task,
+                                                                    message=message)
+
+                        except BaseException as e:
+                            log.info('update_en (try load bonuses): {}'.format(e))
                         # await self.get_bonuses(message=message)
                 except AttributeError as ae:
                     log.info('update_en: (bonuses) {}'.format(ae))
 
-                # Update new ene
+                # update new ene
                 self.en_engine = ene_new
         else:
-            # Try relogin and if failed send message
+            # try relogin and if failed send message
             if not await self.chek_login():
-                await message.bot.send_message(message.chat.id, 'Не получилось загрузить уровень')
+                await message.bot.send_message(message.chat.id, 'не получилось загрузить уровень')
 
-    async def text_handler(self, str_in, message: aitype.Message):
+    async def text_handler(self, str_in, message: aitype.message, pre_str=''):
         """
-        This function accept input html code,
+        this function accept input html code,
         parse all attachments from it,
         and convert to markdown text
+        :param pre_str:
         :param message:
         :param str_in: html code
         :return: list of construction:
         """
         markdown_txt = html2txt(str_in)
 
-        # Handler images in MarkDown (remove '!' before link)
+        # handler images in markdown (remove '!' before link)
         # Handler nested URL
         nested_url = re.findall(r'(\[(!?\[([^\[\]\(\)]*?)\]\((.*?)\))\]\((.*?)\))', markdown_txt)
         for item in nested_url:
@@ -291,6 +341,9 @@ class Oten():
 
             new_item = '[{}]({})'.format(text_item, link_item)
             markdown_txt = markdown_txt.replace(full_item, new_item)
+
+            # Add Pre_str
+            markdown_txt = pre_str + markdown_txt
 
         # msgs_list.append(format_message(markdown_txt, disable_web_page_preview=True, parse_mode=''))
         try:
@@ -358,6 +411,12 @@ class Oten():
                             )
             else:
                 hint_summary = ''
+
+            if len(ene.level.sectors) == 0:
+                sectors_count = 1
+            else:
+                sectors_count = len(ene.level.sectors)
+
 
             args = {
                 'lvl_num': ene.level.number,
@@ -454,9 +513,17 @@ class Oten():
 
         # try get current bonus
         if current_bonus > 0:
+            if current_bonus > 1000:
+                await message.reply('Сударь(ыня) а не пойти ли вам нахуй с такими запрсами =))')
+
             bonus = [x for x in ene.level.bonuses if x.number == current_bonus]
             try:
-                await self.text_handler(bonus[0].task, message)
+                if bonus[0].task:
+                    await self.text_handler(bonus[0].task,
+                                            message,
+                                            pre_str='*Бонус {}*: {}'.format(bonus[0].number, bonus[0].name))
+                else:
+                    await message.answer('*Бонус {}*: {}'.format(bonus[0].number, bonus[0].name))
             except BaseException as e:
                 await message.answer("Can't get bonus №{}".format(current_bonus))
                 log.info('get_bonuses: try get current bonus {}'.format(e))
@@ -478,21 +545,21 @@ class Oten():
                         # Expired bonus
                         elif bonus.expired:
                             bonus_msg += '❌ Бонус {}: {}\n'.format(
-                               bonus.number,
-                               'не выполнен (время выполнения истекло)')
+                                bonus.number,
+                                'не выполнен (время выполнения истекло)')
 
                         # Bonus is inactive yet
                         elif bonus.seconds_to_start > 0:
                             bonus_msg += '🕑 Бонус {}: Будет доступен через {}\n'.format(
-                               bonus.number,
-                               bonus.name,
-                               str(datetime.timedelta(seconds=bonus.seconds_to_start)))
+                                bonus.number,
+                                bonus.name,
+                                str(datetime.timedelta(seconds=bonus.seconds_to_start)))
 
                         # Just bonus is not answered
                         else:
                             bonus_msg += '🔘 Бонус {}: {}\n'.format(
-                               bonus.number,
-                               bonus.name)
+                                bonus.number,
+                                bonus.name)
 
                         # if need sped full info
                         if current_bonus == 0:
@@ -535,7 +602,7 @@ class Oten():
                                                text=msg)
             else:
                 await message.bot.send_message(chat_id=message.chat.id,
-                                               text='Секторов нет')
+                                               text='🔑:1')
         except AttributeError as ae:
             await message.bot.send_message(chat_id=message.chat.id,
                                            text="GET_sectors: Can't find json")
@@ -570,6 +637,22 @@ class Oten():
         ts = ene.level.start_time
         await message.reply(ts)
 
+    async def set_reminder(self, lvl=None, seconds=0, text='', message=aitype.Message):
+
+        if lvl is None:
+            try:
+                lvl = self.en_engine.level.number
+            except AttributeError:
+                lvl = 0
+
+        if seconds > 0:
+            await asyncio.sleep(seconds)
+            try:
+                if self.en_engine.level.number == lvl and text != '':
+                    await message.answer(text)
+            except BaseException as e:
+                log.info('set_reminder: {}'.format(e))
+
     async def find_gps(self, message=aitype.Message):
         full_txt = ''
         ene = self.en_engine
@@ -588,12 +671,6 @@ class Oten():
             log.info('find_gps: (bonuses) {}'.format(e))
 
         await oten_utilits.text2gps(full_txt, message)
-
-
-
-
-
-
 
     def get_level_html(self, level_number=None):
         if level_number is None:
@@ -664,34 +741,40 @@ class Oten():
         # Check if bot in the game
         if ene.game_id != 0:
 
-            # Chek has this code been sent
-            level_answers = list([x for x in ene.level.mixed_actions if x.answer == code])
-            if level_answers:
-                answer_msg += '🔁'
+            if len(code) > 0:
 
-            # IF this new code
-            # If there is block Answer
-            if ene.level.has_answer_block_rule:
-                if len(pre) > 1:
-                    data['LevelAction.Answer'] = code
+                # Chek has this code been sent
+                level_answers = list([x for x in ene.level.mixed_actions if x.answer == code])
+                if level_answers:
+                    answer_msg += '🔁'
+
+                # IF this new code
+                # If there is block Answer
+                if ene.level.has_answer_block_rule:
+                    if len(pre) > 1:
+                        data['LevelAction.Answer'] = code
+                    else:
+                        data['BonusAction.Answer'] = code
+
+                # If there is not block Answer
                 else:
-                    data['BonusAction.Answer'] = code
+                    # Configure data and send it
+                    data['LevelAction.Answer'] = code
 
-            # If there is not block Answer
-            else:
-                # Configure data and send it
-                data['LevelAction.Answer'] = code
+                # IF has not block and want to spend code
+                if ene.level.block_duration > 0 and len(pre) > 1:
+                    await message.answer(
+                        '⛔️ Ввод заблокирован, осталось {}'.format(
+                            datetime.timedelta(seconds=ene.level.block_duration)))
+                else:
+                    await self.wrapper_send_answer(data=data,
+                                                   code=code,
+                                                   answer_msg=answer_msg,
+                                                   message=message)
 
-            # IF has not block and want to spend code
-            if ene.level.block_duration > 0 and len(pre) > 1:
-                await message.answer(
-                    '⛔️ Ввод заблокирован, осталось {}'.format(
-                        datetime.timedelta(seconds=ene.level.block_duration)))
             else:
-                await self.wrapper_send_answer(data=data,
-                                               code=code,
-                                               answer_msg=answer_msg,
-                                               message=message)
+                await message.answer('Не могу отправить пустой код')
+
 
         else:
             await message.answer("Answer: Game is stop!")
@@ -729,7 +812,7 @@ class Oten():
                     await message.reply(answer_msg)
 
                 else:
-                    await message.reply('❌ {}'.format(code))
+                    await message.reply(answer_msg + '❌ {}'.format(code))
 
             except BaseException as e:
                 await message.answer("Answer: spend but can't parse ene")

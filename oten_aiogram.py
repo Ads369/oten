@@ -86,9 +86,16 @@ async def en_demon_start(message: types.Message):
     oten.is_in_game = False
 
 
-async def remind(message: types.Message, seconds=0, text=''):
-    await asyncio.sleep(seconds)
-    await message.bot.send_message(chat_id=message.chat.id, text=time.strftime("%H:%M:%S", time.localtime()))
+@dp.message_handler(commands=['reminder'],
+                    chat_id=chat_id_required)
+async def reminder(message: types.Message, seconds=0, text=''):
+    split_message = message.text.split(' ')
+    msg_in = ''.join(split_message[2:])
+    seconds = split_message[1]
+    await oten.set_reminder(lvl=None,
+                            seconds=seconds,
+                            text=msg_in,
+                            message=message)
 
 
 @dp.message_handler(commands=['level', 'lvl', 'лвл'],
@@ -198,7 +205,6 @@ async def test(message: types.Message):
     await message.answer(msg)
 
 
-
 @dp.message_handler(commands=['log'],
                     user_id=user_id_required,
                     chat_id=chat_id_required)
@@ -285,11 +291,10 @@ async def set_com(message: types.Message):
 #     await message.answer(message.chat.id)
 
 
-@dp.message_handler(regexp=r'[\.\/]',
+@dp.message_handler(regexp=r'^[\.\/]',
                     chat_id=chat_id_required)
 async def answer(message: types.Message):
     await oten.send_answer(message)
-
 
 
 if __name__ == '__main__':
